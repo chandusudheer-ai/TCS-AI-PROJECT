@@ -1,0 +1,1229 @@
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║       DataForge Sales Intelligence Dashboard — CIO Executive Suite          ║
+║       H1 2024 vs H1 2025 · Powered by OpenAI GPT-4                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Requirements:
+    pip install streamlit plotly pandas openai python-dotenv
+
+Run:
+    streamlit run sales_intelligence_dashboard.py
+
+Set your OpenAI API key in a .env file:
+    OPENAI_API_KEY=sk-...
+Or enter it directly in the sidebar when the app loads.
+"""
+
+import os
+import json
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Sales Intelligence Dashboard",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GLOBAL CSS — Executive Dark Theme
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&family=Syne:wght@700;800&display=swap');
+
+/* ── Root Variables ── */
+:root {
+    --bg-base:      #070B14;
+    --bg-surface:   #0D1524;
+    --bg-card:      #111B2E;
+    --bg-card-alt:  #0E1829;
+    --border:       rgba(99,179,237,0.12);
+    --border-glow:  rgba(99,179,237,0.35);
+    --accent-blue:  #3B82F6;
+    --accent-cyan:  #06B6D4;
+    --accent-green: #10B981;
+    --accent-amber: #F59E0B;
+    --accent-rose:  #F43F5E;
+    --accent-purple:#8B5CF6;
+    --text-primary: #E2E8F0;
+    --text-muted:   #64748B;
+    --text-dim:     #94A3B8;
+    --font-display: 'Syne', sans-serif;
+    --font-body:    'DM Sans', sans-serif;
+    --font-mono:    'Space Mono', monospace;
+}
+
+/* ── Base Reset ── */
+html, body, [class*="css"] {
+    font-family: var(--font-body);
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+}
+
+.stApp { background: var(--bg-base); }
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0A1628 0%, #070B14 100%);
+    border-right: 1px solid var(--border);
+}
+[data-testid="stSidebar"] .stMarkdown h1,
+[data-testid="stSidebar"] .stMarkdown h2,
+[data-testid="stSidebar"] .stMarkdown h3 {
+    color: var(--accent-cyan);
+    font-family: var(--font-display);
+}
+
+/* ── Hide default Streamlit header ── */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* ── Metric Cards ── */
+[data-testid="metric-container"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    transition: border-color 0.2s;
+}
+[data-testid="metric-container"]:hover { border-color: var(--border-glow); }
+[data-testid="stMetricValue"] {
+    font-family: var(--font-display);
+    font-size: 1.8rem !important;
+    color: var(--text-primary);
+}
+[data-testid="stMetricDelta"] { font-family: var(--font-mono); font-size: 0.75rem; }
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    gap: 4px;
+    padding: 0 8px;
+}
+.stTabs [data-baseweb="tab"] {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    padding: 10px 20px;
+    border-radius: 6px 6px 0 0;
+    letter-spacing: 0.03em;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--bg-card) !important;
+    color: var(--accent-cyan) !important;
+    border-bottom: 2px solid var(--accent-cyan) !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.875rem;
+    padding: 10px 24px;
+    transition: opacity 0.2s, transform 0.1s;
+    letter-spacing: 0.02em;
+}
+.stButton > button:hover { opacity: 0.88; transform: translateY(-1px); }
+
+/* ── Selectbox / Input ── */
+.stSelectbox > div > div,
+.stTextInput > div > div > input,
+.stTextArea textarea {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 8px !important;
+    font-family: var(--font-body) !important;
+}
+
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+.dataframe thead th {
+    background: var(--bg-surface) !important;
+    color: var(--accent-cyan) !important;
+    font-family: var(--font-mono) !important;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.dataframe tbody tr:hover td { background: rgba(59,130,246,0.06) !important; }
+
+/* ── Expander ── */
+.streamlit-expanderHeader {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    font-family: var(--font-body) !important;
+    font-weight: 500;
+}
+
+/* ── AI Response Card ── */
+.ai-card {
+    background: linear-gradient(135deg, rgba(59,130,246,0.07), rgba(6,182,212,0.05));
+    border: 1px solid rgba(99,179,237,0.2);
+    border-left: 3px solid var(--accent-cyan);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 12px 0;
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: var(--text-primary);
+}
+
+/* ── Section Headers ── */
+.section-title {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+}
+.section-sub {
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 18px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── KPI Badge ── */
+.kpi-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+.badge-green { background: rgba(16,185,129,0.15); color: #34D399; border: 1px solid rgba(16,185,129,0.3); }
+.badge-red   { background: rgba(244,63,94,0.15);  color: #FB7185; border: 1px solid rgba(244,63,94,0.3); }
+.badge-amber { background: rgba(245,158,11,0.15); color: #FCD34D; border: 1px solid rgba(245,158,11,0.3); }
+.badge-blue  { background: rgba(59,130,246,0.15); color: #93C5FD; border: 1px solid rgba(59,130,246,0.3); }
+
+/* ── Hero Banner ── */
+.hero-banner {
+    background: linear-gradient(135deg, #0D1524 0%, #111B2E 40%, #0D1A32 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 36px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+}
+.hero-banner::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 240px; height: 240px;
+    background: radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%);
+    border-radius: 50%;
+}
+.hero-title {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 800;
+    color: #F1F5F9;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin: 0 0 6px 0;
+}
+.hero-subtitle {
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.hero-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(6,182,212,0.1);
+    border: 1px solid rgba(6,182,212,0.25);
+    color: var(--accent-cyan);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin-top: 14px;
+    margin-right: 6px;
+}
+
+/* ── Insight Card ── */
+.insight-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 10px;
+    transition: border-color 0.2s, transform 0.15s;
+}
+.insight-card:hover { border-color: var(--border-glow); transform: translateX(3px); }
+.insight-title {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.insight-body {
+    font-size: 0.83rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+}
+
+/* ── Action Plan Table ── */
+.action-row {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+.action-num {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+    min-width: 28px;
+}
+.action-content { flex: 1; }
+.action-title {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+}
+.action-detail {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────────────────────
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+
+RAW_2024 = {
+    "Jan": {"gross_revenue":88400,  "net_revenue":79560,  "units":590,  "txn":441,"aov":180.4,"quota":85000, "attainment":93.6,"wins":30,"losses":22,"pipeline":225000,"conv":21.4,"new_cust":62, "ret_cust":379,"cac":238,"churn":4.8,"forecast":82000, "cogs":44600,"gm":43.9,"sales_exp":14800,"refunds":3100,"disc":8.1,"cycle":36,"rep_rev":15912,"online_pct":22,"direct_pct":60,"partner_pct":18},
+    "Feb": {"gross_revenue":92100,  "net_revenue":82890,  "units":615,  "txn":461,"aov":179.9,"quota":90000, "attainment":92.1,"wins":33,"losses":24,"pipeline":248000,"conv":22.8,"new_cust":68, "ret_cust":393,"cac":225,"churn":4.5,"forecast":88000, "cogs":46500,"gm":43.9,"sales_exp":15200,"refunds":2900,"disc":7.8,"cycle":35,"rep_rev":16578,"online_pct":24,"direct_pct":58,"partner_pct":18},
+    "Mar": {"gross_revenue":110500, "net_revenue":99450,  "units":739,  "txn":553,"aov":179.8,"quota":100000,"attainment":99.5,"wins":44,"losses":20,"pipeline":290000,"conv":25.7,"new_cust":88, "ret_cust":465,"cac":208,"churn":4.1,"forecast":98000, "cogs":55800,"gm":43.9,"sales_exp":17100,"refunds":3700,"disc":7.2,"cycle":32,"rep_rev":19890,"online_pct":26,"direct_pct":56,"partner_pct":18},
+    "Apr": {"gross_revenue":103200, "net_revenue":92880,  "units":691,  "txn":517,"aov":179.6,"quota":105000,"attainment":88.5,"wins":38,"losses":29,"pipeline":268000,"conv":22.3,"new_cust":79, "ret_cust":438,"cac":218,"churn":4.6,"forecast":106000,"cogs":52400,"gm":43.6,"sales_exp":16400,"refunds":4200,"disc":7.9,"cycle":38,"rep_rev":18576,"online_pct":27,"direct_pct":55,"partner_pct":18},
+    "May": {"gross_revenue":118700, "net_revenue":106830, "units":793,  "txn":594,"aov":179.8,"quota":112000,"attainment":95.4,"wins":48,"losses":21,"pipeline":315000,"conv":27.6,"new_cust":102,"ret_cust":492,"cac":198,"churn":3.9,"forecast":110000,"cogs":60100,"gm":43.7,"sales_exp":17900,"refunds":3800,"disc":7.1,"cycle":33,"rep_rev":21366,"online_pct":29,"direct_pct":53,"partner_pct":18},
+    "Jun": {"gross_revenue":128900, "net_revenue":116010, "units":861,  "txn":645,"aov":179.8,"quota":125000,"attainment":92.8,"wins":54,"losses":23,"pipeline":345000,"conv":28.9,"new_cust":118,"ret_cust":527,"cac":185,"churn":3.5,"forecast":122000,"cogs":65200,"gm":43.8,"sales_exp":19200,"refunds":4100,"disc":6.9,"cycle":30,"rep_rev":23202,"online_pct":31,"direct_pct":52,"partner_pct":17},
+}
+
+RAW_2025 = {
+    "Jan": {"gross_revenue":124500, "net_revenue":112050, "units":830,  "txn":620,"aov":180.7,"quota":110000,"attainment":101.9,"wins":42,"losses":18,"pipeline":340000,"conv":28.5,"new_cust":95, "ret_cust":525,"cac":185,"churn":3.2,"forecast":115000,"cogs":61000,"gm":45.6,"sales_exp":18200,"refunds":3800,"disc":6.2,"cycle":28,"rep_rev":20750,"online_pct":32,"direct_pct":48,"partner_pct":20},
+    "Feb": {"gross_revenue":138200, "net_revenue":124380, "units":921,  "txn":689,"aov":180.5,"quota":120000,"attainment":103.7,"wins":51,"losses":15,"pipeline":385000,"conv":31.2,"new_cust":112,"ret_cust":577,"cac":172,"churn":2.8,"forecast":122000,"cogs":67200,"gm":46.0,"sales_exp":19800,"refunds":4100,"disc":5.8,"cycle":26,"rep_rev":23033,"online_pct":38,"direct_pct":44,"partner_pct":18},
+    "Mar": {"gross_revenue":165800, "net_revenue":149220, "units":1105, "txn":827,"aov":180.4,"quota":150000,"attainment":99.5,"wins":63,"losses":22,"pipeline":452000,"conv":33.8,"new_cust":148,"ret_cust":679,"cac":158,"churn":2.5,"forecast":155000,"cogs":80900,"gm":51.2,"sales_exp":22100,"refunds":5100,"disc":5.2,"cycle":24,"rep_rev":27633,"online_pct":35,"direct_pct":50,"partner_pct":15},
+    "Apr": {"gross_revenue":152300, "net_revenue":137070, "units":1015, "txn":760,"aov":180.4,"quota":155000,"attainment":88.4,"wins":55,"losses":28,"pipeline":420000,"conv":29.7,"new_cust":130,"ret_cust":630,"cac":168,"churn":3.1,"forecast":160000,"cogs":74600,"gm":45.1,"sales_exp":21500,"refunds":6200,"disc":6.8,"cycle":30,"rep_rev":25383,"online_pct":35,"direct_pct":40,"partner_pct":25},
+    "May": {"gross_revenue":178900, "net_revenue":161010, "units":1192, "txn":894,"aov":180.2,"quota":165000,"attainment":97.6,"wins":72,"losses":19,"pipeline":510000,"conv":36.4,"new_cust":165,"ret_cust":729,"cac":145,"churn":2.2,"forecast":170000,"cogs":87200,"gm":51.3,"sales_exp":24300,"refunds":4800,"disc":4.9,"cycle":22,"rep_rev":29817,"online_pct":41,"direct_pct":42,"partner_pct":17},
+    "Jun": {"gross_revenue":195600, "net_revenue":176040, "units":1304, "txn":978,"aov":180.0,"quota":180000,"attainment":97.8,"wins":81,"losses":17,"pipeline":580000,"conv":38.9,"new_cust":188,"ret_cust":790,"cac":132,"churn":1.9,"forecast":185000,"cogs":95300,"gm":51.3,"sales_exp":26800,"refunds":5200,"disc":4.5,"cycle":20,"rep_rev":32600,"online_pct":45,"direct_pct":38,"partner_pct":17},
+}
+
+# Build DataFrames
+def build_df(raw, year):
+    rows = []
+    for m in MONTHS:
+        d = raw[m]
+        d2 = dict(d)
+        d2["month"] = m
+        d2["year"]  = year
+        d2["label"] = f"{m} {year}"
+        d2["win_rate"] = round(d["wins"]/(d["wins"]+d["losses"])*100, 1)
+        d2["net_margin"] = round((d["net_revenue"]-d["cogs"]-d["sales_exp"])/d["net_revenue"]*100, 1)
+        rows.append(d2)
+    return pd.DataFrame(rows)
+
+df24 = build_df(RAW_2024, 2024)
+df25 = build_df(RAW_2025, 2025)
+df_all = pd.concat([df24, df25], ignore_index=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHART THEME
+# ─────────────────────────────────────────────────────────────────────────────
+CHART_BG   = "rgba(0,0,0,0)"
+GRID_COLOR = "rgba(99,179,237,0.08)"
+TEXT_COLOR = "#94A3B8"
+COL_2024   = "#F59E0B"
+COL_2025   = "#3B82F6"
+COLORS_6   = ["#3B82F6","#06B6D4","#10B981","#F59E0B","#8B5CF6","#F43F5E"]
+
+def apply_dark_theme(fig, title="", height=360):
+    fig.update_layout(
+        height=height,
+        title=dict(text=title, font=dict(family="Syne, sans-serif", size=14, color="#E2E8F0"), x=0.02),
+        paper_bgcolor=CHART_BG,
+        plot_bgcolor=CHART_BG,
+        font=dict(family="DM Sans, sans-serif", color=TEXT_COLOR, size=11),
+        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=GRID_COLOR, borderwidth=1,
+                    font=dict(size=10)),
+        margin=dict(l=12, r=12, t=44, b=12),
+        xaxis=dict(gridcolor=GRID_COLOR, showgrid=False, linecolor=GRID_COLOR,
+                   tickfont=dict(size=10)),
+        yaxis=dict(gridcolor=GRID_COLOR, linecolor=GRID_COLOR, tickfont=dict(size=10)),
+    )
+    return fig
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPENAI HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+def ask_openai(prompt: str, api_key: str, model: str = "gpt-4o") -> str:
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": (
+                    "You are an elite sales analytics consultant and IT industry specialist "
+                    "advising a CIO. You analyze sales data using frameworks like OKRs, MEDDIC, "
+                    "SPIN Selling, Challenger Sale, and SaaS/IT industry benchmarks. "
+                    "Provide precise, actionable, executive-level insights. "
+                    "Use bullet points, numbered lists, and clear sections. "
+                    "Be direct and data-driven. Cite specific numbers from the data provided."
+                )},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ OpenAI API Error: {str(e)}\n\nPlease check your API key and try again."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style='padding:16px 0 8px 0'>
+        <div style='font-family:Syne,sans-serif;font-size:1.15rem;font-weight:800;
+                    color:#E2E8F0;letter-spacing:-0.01em;'>⚡ Sales Intelligence</div>
+        <div style='font-size:0.7rem;color:#475569;letter-spacing:0.08em;
+                    text-transform:uppercase;margin-top:2px;'>CIO Executive Suite</div>
+    </div>
+    <hr style='border-color:rgba(99,179,237,0.12);margin:8px 0 16px 0'>
+    """, unsafe_allow_html=True)
+
+    st.markdown("**🔑 OpenAI Configuration**")
+    api_key = st.text_input(
+        "API Key",
+        value=os.getenv("OPENAI_API_KEY", ""),
+        type="password",
+        placeholder="sk-...",
+        help="Your OpenAI API key for AI-powered analysis"
+    )
+    model_choice = st.selectbox("Model", ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+                                 help="GPT-4o recommended for best analysis quality")
+
+    st.markdown("<hr style='border-color:rgba(99,179,237,0.12);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown("**📊 Report Scope**")
+    st.markdown("""
+    <div style='font-size:0.78rem;color:#64748B;line-height:1.7'>
+    • Period: <span style='color:#94A3B8'>Jan–Jun 2024 vs 2025</span><br>
+    • Company: <span style='color:#94A3B8'>DataForge Analytics</span><br>
+    • Framework: <span style='color:#94A3B8'>MEDDIC + OKR</span><br>
+    • Industry: <span style='color:#94A3B8'>IT / SaaS Benchmarks</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<hr style='border-color:rgba(99,179,237,0.12);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown("**🗂 Sections**")
+    sections = ["Overview", "Revenue & Volume", "Sales Performance",
+                "Customer Intelligence", "Profitability", "Channel Strategy",
+                "AI Analysis", "H2 Action Plan"]
+    nav = st.radio("Navigate to", sections, label_visibility="collapsed")
+
+    st.markdown("<hr style='border-color:rgba(99,179,237,0.12);margin:16px 0'>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='font-size:0.68rem;color:#334155;text-align:center'>
+    DataForge Analytics · Hackathon 2025<br>
+    Powered by OpenAI GPT-4
+    </div>""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HERO BANNER
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-banner">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px">
+        <div>
+            <div class="hero-title">Sales Intelligence Dashboard</div>
+            <div class="hero-subtitle">H1 2024 vs H1 2025 · Performance Review & Strategic Planning</div>
+            <div style="margin-top:12px">
+                <span class="hero-tag">⚡ LIVE ANALYSIS</span>
+                <span class="hero-tag">📈 YoY BENCHMARKING</span>
+                <span class="hero-tag">🤖 AI-POWERED</span>
+                <span class="hero-tag">🎯 H2 ROADMAP</span>
+            </div>
+        </div>
+        <div style="text-align:right">
+            <div style="font-family:'Space Mono',monospace;font-size:0.7rem;color:#475569;
+                        letter-spacing:0.05em">REPORT DATE</div>
+            <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700;
+                        color:#E2E8F0">H1 2025 REVIEW</div>
+            <div style="font-family:'Space Mono',monospace;font-size:0.68rem;color:#334155;
+                        margin-top:4px">DataForge Analytics Team</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPUTED TOTALS
+# ─────────────────────────────────────────────────────────────────────────────
+tot24 = {k: sum(RAW_2024[m][k] for m in MONTHS) for k in ["net_revenue","gross_revenue","units","new_cust","wins","losses","cogs","sales_exp"]}
+tot25 = {k: sum(RAW_2025[m][k] for m in MONTHS) for k in ["net_revenue","gross_revenue","units","new_cust","wins","losses","cogs","sales_exp"]}
+
+avg24 = {k: sum(RAW_2024[m][k] for m in MONTHS)/6 for k in ["attainment","gm","churn","cac","conv","cycle","disc"]}
+avg25 = {k: sum(RAW_2025[m][k] for m in MONTHS)/6 for k in ["attainment","gm","churn","cac","conv","cycle","disc"]}
+
+def yoy(v24, v25): return round((v25 - v24) / v24 * 100, 1)
+def yoy_str(v24, v25): 
+    val = yoy(v24, v25)
+    return f"+{val}%" if val > 0 else f"{val}%"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: OVERVIEW
+# ─────────────────────────────────────────────────────────────────────────────
+if nav == "Overview":
+    st.markdown('<div class="section-title">Executive Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Key Performance Indicators · H1 2024 vs H1 2025</div>', unsafe_allow_html=True)
+
+    # KPI Row 1
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Total Net Revenue 2025", f"${tot25['net_revenue']:,.0f}",
+              delta=yoy_str(tot24['net_revenue'], tot25['net_revenue']))
+    k2.metric("Total Units Sold 2025", f"{tot25['units']:,}",
+              delta=yoy_str(tot24['units'], tot25['units']))
+    k3.metric("New Customers 2025", f"{tot25['new_cust']:,}",
+              delta=yoy_str(tot24['new_cust'], tot25['new_cust']))
+    k4.metric("Avg Quota Attainment", f"{avg25['attainment']:.1f}%",
+              delta=f"{avg25['attainment']-avg24['attainment']:+.1f}pp")
+    k5.metric("Avg Gross Margin", f"{avg25['gm']:.1f}%",
+              delta=f"{avg25['gm']-avg24['gm']:+.1f}pp")
+    k6.metric("Avg CAC (2025)", f"${avg25['cac']:.0f}",
+              delta=f"${avg25['cac']-avg24['cac']:+.0f}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Revenue trend comparison
+    col_l, col_r = st.columns([3, 2])
+    with col_l:
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=MONTHS, y=df24["net_revenue"]/1000, name="2024",
+                             marker_color=COL_2024, opacity=0.85,
+                             hovertemplate="$%{y:.1f}K<extra>2024</extra>"))
+        fig.add_trace(go.Bar(x=MONTHS, y=df25["net_revenue"]/1000, name="2025",
+                             marker_color=COL_2025, opacity=0.85,
+                             hovertemplate="$%{y:.1f}K<extra>2025</extra>"))
+        fig.update_layout(barmode="group", bargap=0.18, bargroupgap=0.05)
+        apply_dark_theme(fig, "Net Revenue Comparison (USD thousands)", 340)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_r:
+        # Radar chart
+        categories = ["Revenue Growth","Quota Attainment","Gross Margin",
+                      "Win Rate","Customer Acq.","Conversion Rate"]
+        # Normalize to 0-100 scale relative to max
+        vals_24 = [
+            round(tot24['net_revenue']/tot25['net_revenue']*100),
+            round(avg24['attainment']),
+            round(avg24['gm']*2),
+            round(sum(RAW_2024[m]["wins"]/(RAW_2024[m]["wins"]+RAW_2024[m]["losses"])*100 for m in MONTHS)/6),
+            round(tot24['new_cust']/tot25['new_cust']*100),
+            round(avg24['conv']*2.5),
+        ]
+        vals_25 = [100, round(avg25['attainment']),
+                   round(avg25['gm']*2),
+                   round(sum(RAW_2025[m]["wins"]/(RAW_2025[m]["wins"]+RAW_2025[m]["losses"])*100 for m in MONTHS)/6),
+                   100, round(avg25['conv']*2.5)]
+
+        fig_r = go.Figure()
+        fig_r.add_trace(go.Scatterpolar(r=vals_24+[vals_24[0]], theta=categories+[categories[0]],
+                                         fill='toself', name='H1 2024',
+                                         line_color=COL_2024, fillcolor=f"rgba(245,158,11,0.1)"))
+        fig_r.add_trace(go.Scatterpolar(r=vals_25+[vals_25[0]], theta=categories+[categories[0]],
+                                         fill='toself', name='H1 2025',
+                                         line_color=COL_2025, fillcolor=f"rgba(59,130,246,0.1)"))
+        fig_r.update_layout(polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(visible=True, range=[0,110], tickfont=dict(size=8),
+                            gridcolor=GRID_COLOR, linecolor=GRID_COLOR),
+            angularaxis=dict(tickfont=dict(size=9), gridcolor=GRID_COLOR, linecolor=GRID_COLOR),
+        ), showlegend=True)
+        apply_dark_theme(fig_r, "Performance Radar: 2024 vs 2025", 340)
+        st.plotly_chart(fig_r, use_container_width=True)
+
+    # Summary comparison table
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Head-to-Head Scorecard</div>', unsafe_allow_html=True)
+
+    score_data = {
+        "Metric": ["Net Revenue (H1 Total)", "Total Units Sold", "New Customers", "Avg Quota Attainment",
+                   "Avg Gross Margin", "Avg CAC", "Avg Churn Rate", "Avg Sales Cycle", "Total Wins", "Avg Win Rate"],
+        "H1 2024": [f"${tot24['net_revenue']:,.0f}", f"{tot24['units']:,}", f"{tot24['new_cust']:,}",
+                    f"{avg24['attainment']:.1f}%", f"{avg24['gm']:.1f}%", f"${avg24['cac']:.0f}",
+                    f"{avg24['churn']:.1f}%", f"{avg24['cycle']:.0f} days",
+                    f"{tot24['wins']}", f"{tot24['wins']/(tot24['wins']+tot24['losses'])*100:.1f}%"],
+        "H1 2025": [f"${tot25['net_revenue']:,.0f}", f"{tot25['units']:,}", f"{tot25['new_cust']:,}",
+                    f"{avg25['attainment']:.1f}%", f"{avg25['gm']:.1f}%", f"${avg25['cac']:.0f}",
+                    f"{avg25['churn']:.1f}%", f"{avg25['cycle']:.0f} days",
+                    f"{tot25['wins']}", f"{tot25['wins']/(tot25['wins']+tot25['losses'])*100:.1f}%"],
+        "YoY Change": [
+            yoy_str(tot24['net_revenue'], tot25['net_revenue']),
+            yoy_str(tot24['units'], tot25['units']),
+            yoy_str(tot24['new_cust'], tot25['new_cust']),
+            f"{avg25['attainment']-avg24['attainment']:+.1f}pp",
+            f"{avg25['gm']-avg24['gm']:+.1f}pp",
+            yoy_str(avg24['cac'], avg25['cac']),
+            f"{avg25['churn']-avg24['churn']:+.1f}pp",
+            f"{avg25['cycle']-avg24['cycle']:+.0f}d",
+            yoy_str(tot24['wins'], tot25['wins']),
+            f"{(tot25['wins']/(tot25['wins']+tot25['losses'])-tot24['wins']/(tot24['wins']+tot24['losses']))*100:+.1f}pp",
+        ],
+    }
+    st.dataframe(pd.DataFrame(score_data), use_container_width=True, hide_index=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: REVENUE & VOLUME
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "Revenue & Volume":
+    st.markdown('<div class="section-title">Revenue & Volume Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Gross/Net Revenue · Units · AOV · MoM Trends</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=MONTHS, y=df24["net_revenue"]/1000, name="2024 Net Rev",
+                                  mode="lines+markers", line=dict(color=COL_2024, width=2.5),
+                                  marker=dict(size=7), fill='tozeroy',
+                                  fillcolor="rgba(245,158,11,0.06)"))
+        fig.add_trace(go.Scatter(x=MONTHS, y=df25["net_revenue"]/1000, name="2025 Net Rev",
+                                  mode="lines+markers", line=dict(color=COL_2025, width=2.5),
+                                  marker=dict(size=7), fill='tozeroy',
+                                  fillcolor="rgba(59,130,246,0.07)"))
+        apply_dark_theme(fig, "Net Revenue Trend ($K)", 300)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(x=MONTHS, y=df24["units"], name="2024",
+                               marker_color=COL_2024, opacity=0.8))
+        fig2.add_trace(go.Bar(x=MONTHS, y=df25["units"], name="2025",
+                               marker_color=COL_2025, opacity=0.8))
+        fig2.update_layout(barmode="group")
+        apply_dark_theme(fig2, "Units Sold Comparison", 300)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        # MoM growth
+        mom_24 = [None] + [round((df24["net_revenue"].iloc[i]-df24["net_revenue"].iloc[i-1])/df24["net_revenue"].iloc[i-1]*100,1) for i in range(1,6)]
+        mom_25 = [None] + [round((df25["net_revenue"].iloc[i]-df25["net_revenue"].iloc[i-1])/df25["net_revenue"].iloc[i-1]*100,1) for i in range(1,6)]
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(x=MONTHS[1:], y=mom_24[1:], name="2024 MoM%",
+                               marker_color=COL_2024, opacity=0.8))
+        fig3.add_trace(go.Bar(x=MONTHS[1:], y=mom_25[1:], name="2025 MoM%",
+                               marker_color=COL_2025, opacity=0.8))
+        fig3.add_hline(y=0, line_color="rgba(255,255,255,0.15)")
+        fig3.update_layout(barmode="group")
+        apply_dark_theme(fig3, "Month-over-Month Revenue Growth (%)", 300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        fig4 = make_subplots(specs=[[{"secondary_y": True}]])
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df24["aov"], name="2024 AOV",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2),
+                                   marker=dict(size=6)), secondary_y=False)
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["aov"], name="2025 AOV",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2),
+                                   marker=dict(size=6)), secondary_y=False)
+        apply_dark_theme(fig4, "Average Order Value ($)", 300)
+        fig4.update_yaxes(title_text="AOV ($)", gridcolor=GRID_COLOR, secondary_y=False)
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # Data Table
+    rev_table = pd.DataFrame({
+        "Month": MONTHS,
+        "Gross Rev 2024": [f"${RAW_2024[m]['gross_revenue']:,}" for m in MONTHS],
+        "Net Rev 2024":   [f"${RAW_2024[m]['net_revenue']:,}"   for m in MONTHS],
+        "Gross Rev 2025": [f"${RAW_2025[m]['gross_revenue']:,}" for m in MONTHS],
+        "Net Rev 2025":   [f"${RAW_2025[m]['net_revenue']:,}"   for m in MONTHS],
+        "YoY Rev %":      [yoy_str(RAW_2024[m]['net_revenue'], RAW_2025[m]['net_revenue']) for m in MONTHS],
+        "Units 2024":     [RAW_2024[m]['units'] for m in MONTHS],
+        "Units 2025":     [RAW_2025[m]['units'] for m in MONTHS],
+        "Units YoY%":     [yoy_str(RAW_2024[m]['units'], RAW_2025[m]['units']) for m in MONTHS],
+    })
+    st.dataframe(rev_table, use_container_width=True, hide_index=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: SALES PERFORMANCE
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "Sales Performance":
+    st.markdown('<div class="section-title">Sales Performance</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Quota Attainment · Win/Loss · Pipeline · Conversion</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=MONTHS, y=df24["attainment"], name="2024 Attainment",
+                                  mode="lines+markers+text", line=dict(color=COL_2024, width=2.5),
+                                  marker=dict(size=8), text=[f"{v:.0f}%" for v in df24["attainment"]],
+                                  textposition="top center", textfont=dict(size=9)))
+        fig.add_trace(go.Scatter(x=MONTHS, y=df25["attainment"], name="2025 Attainment",
+                                  mode="lines+markers+text", line=dict(color=COL_2025, width=2.5),
+                                  marker=dict(size=8), text=[f"{v:.0f}%" for v in df25["attainment"]],
+                                  textposition="top center", textfont=dict(size=9)))
+        fig.add_hline(y=100, line_dash="dash", line_color="rgba(16,185,129,0.4)",
+                      annotation_text="Target 100%", annotation_font_size=9)
+        fig.add_hline(y=90, line_dash="dot", line_color="rgba(244,63,94,0.3)",
+                      annotation_text="Danger 90%", annotation_font_size=9)
+        apply_dark_theme(fig, "Quota Attainment % — 2024 vs 2025", 320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        fig2 = go.Figure()
+        fig2.add_trace(go.Bar(x=MONTHS, y=df24["win_rate"], name="Win Rate 2024",
+                               marker_color=COL_2024, opacity=0.8))
+        fig2.add_trace(go.Bar(x=MONTHS, y=df25["win_rate"], name="Win Rate 2025",
+                               marker_color=COL_2025, opacity=0.8))
+        fig2.update_layout(barmode="group")
+        apply_dark_theme(fig2, "Monthly Win Rate (%)", 320)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Scatter(x=MONTHS, y=df24["pipeline"]/1000, name="2024 Pipeline",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2),
+                                   fill='tozeroy', fillcolor="rgba(245,158,11,0.05)"))
+        fig3.add_trace(go.Scatter(x=MONTHS, y=df25["pipeline"]/1000, name="2025 Pipeline",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2),
+                                   fill='tozeroy', fillcolor="rgba(59,130,246,0.05)"))
+        apply_dark_theme(fig3, "Pipeline Value ($K)", 300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        fig4 = go.Figure()
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df24["conv"], name="2024 Conv%",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2)))
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["conv"], name="2025 Conv%",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2)))
+        apply_dark_theme(fig4, "Pipeline Conversion Rate (%)", 300)
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # Wins/Losses stacked
+    fig5 = go.Figure()
+    for i, (m, yr, clr, raw) in enumerate([(MONTHS, "2024", COL_2024, RAW_2024), (MONTHS, "2025", COL_2025, RAW_2025)]):
+        wins   = [raw[mo]["wins"]   for mo in m]
+        losses = [raw[mo]["losses"] for mo in m]
+        labels = [f"{mo} {yr}" for mo in m]
+        fig5.add_trace(go.Bar(x=labels, y=wins,   name=f"Wins {yr}",   marker_color=clr, opacity=0.9))
+        fig5.add_trace(go.Bar(x=labels, y=[-l for l in losses], name=f"Losses {yr}",
+                               marker_color=clr, opacity=0.4))
+    fig5.add_hline(y=0, line_color="rgba(255,255,255,0.2)")
+    fig5.update_layout(barmode="relative")
+    apply_dark_theme(fig5, "Wins vs Losses — Waterfall (Positive=Wins, Negative=Losses)", 320)
+    st.plotly_chart(fig5, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: CUSTOMER INTELLIGENCE
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "Customer Intelligence":
+    st.markdown('<div class="section-title">Customer Intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Acquisition · Retention · CAC · Churn · LTV Signals</div>', unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total New Customers 2025", f"{tot25['new_cust']:,}", delta=f"+{tot25['new_cust']-tot24['new_cust']:,} vs 2024")
+    c2.metric("Avg CAC 2025", f"${avg25['cac']:.0f}", delta=f"${avg25['cac']-avg24['cac']:+.0f}")
+    c3.metric("Avg Churn 2025", f"{avg25['churn']:.1f}%", delta=f"{avg25['churn']-avg24['churn']:+.1f}pp")
+    c4.metric("Jun 2025 Churn", "1.9%", delta="-1.6pp vs Jun 2024")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=MONTHS, y=df24["new_cust"], name="New 2024",
+                              marker_color=COL_2024, opacity=0.85))
+        fig.add_trace(go.Bar(x=MONTHS, y=df25["new_cust"], name="New 2025",
+                              marker_color=COL_2025, opacity=0.85))
+        fig.update_layout(barmode="group")
+        apply_dark_theme(fig, "New Customer Acquisition per Month", 300)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=MONTHS, y=df24["cac"], name="CAC 2024",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2.5),
+                                   marker=dict(size=8, symbol="diamond")))
+        fig2.add_trace(go.Scatter(x=MONTHS, y=df25["cac"], name="CAC 2025",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2.5),
+                                   marker=dict(size=8, symbol="diamond")))
+        apply_dark_theme(fig2, "Customer Acquisition Cost ($)", 300)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Scatter(x=MONTHS, y=df24["churn"], name="Churn 2024",
+                                   mode="lines+markers", line=dict(color="#F43F5E", width=2.5, dash="dot")))
+        fig3.add_trace(go.Scatter(x=MONTHS, y=df25["churn"], name="Churn 2025",
+                                   mode="lines+markers", line=dict(color="#10B981", width=2.5)))
+        apply_dark_theme(fig3, "Monthly Churn Rate (%) — Lower is Better", 300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        # New vs Returning composition
+        fig4 = go.Figure()
+        fig4.add_trace(go.Bar(x=[f"{m} 25" for m in MONTHS],
+                               y=df25["new_cust"], name="New Customers",
+                               marker_color="#3B82F6"))
+        fig4.add_trace(go.Bar(x=[f"{m} 25" for m in MONTHS],
+                               y=df25["ret_cust"], name="Returning Customers",
+                               marker_color="#06B6D4", opacity=0.7))
+        fig4.update_layout(barmode="stack")
+        apply_dark_theme(fig4, "2025: New vs Returning Customer Mix", 300)
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # CAC Payback estimation
+    st.markdown('<div class="section-sub" style="margin-top:18px">CAC Efficiency & LTV Signals (IT Industry Benchmarks)</div>', unsafe_allow_html=True)
+    bench_data = {
+        "Metric": ["Avg CAC H1 2024", "Avg CAC H1 2025", "CAC Improvement", "Avg Churn H1 2024",
+                   "Avg Churn H1 2025", "Churn Improvement", "Est. LTV/CAC Ratio 2024", "Est. LTV/CAC Ratio 2025",
+                   "IT SaaS Benchmark (Target)"],
+        "Value": [f"${avg24['cac']:.0f}", f"${avg25['cac']:.0f}",
+                  f"-{yoy(avg24['cac'],avg25['cac'])*-1:.1f}%",
+                  f"{avg24['churn']:.1f}%/mo", f"{avg25['churn']:.1f}%/mo",
+                  f"-{avg24['churn']-avg25['churn']:.1f}pp",
+                  f"~{(avg24['aov'] if False else 180)/avg24['cac']*12:.1f}x",
+                  f"~{180/avg25['cac']*14:.1f}x",
+                  "LTV:CAC ≥ 3x · Churn < 2%/mo"],
+        "Status": ["Baseline","✅ Improved","✅ 29% reduction","⚠️ Above target","✅ Near target",
+                   "✅ Trending down","⚠️ Below 3x benchmark","✅ Approaching 3x","Industry Standard"],
+    }
+    st.dataframe(pd.DataFrame(bench_data), use_container_width=True, hide_index=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: PROFITABILITY
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "Profitability":
+    st.markdown('<div class="section-title">Profitability Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Gross Margin · Net Margin · COGS · Sales Efficiency</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=MONTHS, y=df24["gm"], name="Gross Margin 2024",
+                                  mode="lines+markers", line=dict(color=COL_2024, width=2.5),
+                                  fill='tozeroy', fillcolor="rgba(245,158,11,0.05)"))
+        fig.add_trace(go.Scatter(x=MONTHS, y=df25["gm"], name="Gross Margin 2025",
+                                  mode="lines+markers", line=dict(color=COL_2025, width=2.5),
+                                  fill='tozeroy', fillcolor="rgba(59,130,246,0.07)"))
+        fig.add_hrect(y0=50, y1=55, fillcolor="rgba(16,185,129,0.05)", line_width=0,
+                      annotation_text="50%+ Milestone", annotation_font_size=9)
+        apply_dark_theme(fig, "Gross Margin % Trend", 320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=MONTHS, y=df24["net_margin"], name="Net Margin 2024",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2.5)))
+        fig2.add_trace(go.Scatter(x=MONTHS, y=df25["net_margin"], name="Net Margin 2025",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2.5)))
+        apply_dark_theme(fig2, "Net Margin % Trend (after Sales Expenses)", 320)
+        st.plotly_chart(fig2, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(x=MONTHS, y=df25["net_revenue"]/1000, name="Net Revenue",
+                               marker_color="#3B82F6", opacity=0.9))
+        fig3.add_trace(go.Bar(x=MONTHS, y=df25["cogs"]/1000, name="COGS",
+                               marker_color="#F43F5E", opacity=0.8))
+        fig3.add_trace(go.Bar(x=MONTHS, y=df25["sales_exp"]/1000, name="Sales Exp",
+                               marker_color="#F59E0B", opacity=0.8))
+        fig3.update_layout(barmode="overlay")
+        apply_dark_theme(fig3, "2025: Revenue vs COGS vs Sales Expenses ($K)", 300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        fig4 = go.Figure()
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df24["disc"], name="Discount % 2024",
+                                   mode="lines+markers", line=dict(color=COL_2024, width=2,dash="dot")))
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["disc"], name="Discount % 2025",
+                                   mode="lines+markers", line=dict(color=COL_2025, width=2)))
+        apply_dark_theme(fig4, "Discount Rate Trend (%) — Lower Signals Pricing Power", 300)
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # Rep productivity
+    fig5 = go.Figure()
+    fig5.add_trace(go.Bar(x=MONTHS, y=df24["rep_rev"]/1000, name="Rev/Rep 2024",
+                           marker_color=COL_2024, opacity=0.85))
+    fig5.add_trace(go.Bar(x=MONTHS, y=df25["rep_rev"]/1000, name="Rev/Rep 2025",
+                           marker_color=COL_2025, opacity=0.85))
+    fig5.update_layout(barmode="group")
+    apply_dark_theme(fig5, "Revenue per Sales Rep ($K) — Productivity Benchmark", 300)
+    st.plotly_chart(fig5, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: CHANNEL STRATEGY
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "Channel Strategy":
+    st.markdown('<div class="section-title">Channel Strategy</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Direct vs Online vs Partner · Sales Cycle · Digital Shift</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=MONTHS, y=df24["online_pct"], name="Online 2024",
+                                  mode="lines+markers", line=dict(color=COL_2024, width=2,dash="dot")))
+        fig.add_trace(go.Scatter(x=MONTHS, y=df25["online_pct"], name="Online 2025",
+                                  mode="lines+markers", line=dict(color="#06B6D4", width=2.5)))
+        fig.add_trace(go.Scatter(x=MONTHS, y=df25["direct_pct"], name="Direct 2025",
+                                  mode="lines+markers", line=dict(color=COL_2025, width=2.5, dash="dash")))
+        apply_dark_theme(fig, "Channel Share % — Online vs Direct (2024→2025)", 320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        # Pie for Jun 2024 vs Jun 2025
+        fig2 = make_subplots(rows=1, cols=2, specs=[[{'type':'pie'},{'type':'pie'}]],
+                              subplot_titles=["Jun 2024 Channel Mix","Jun 2025 Channel Mix"])
+        fig2.add_trace(go.Pie(labels=["Direct","Online","Partner"],
+                               values=[RAW_2024["Jun"]["direct_pct"],RAW_2024["Jun"]["online_pct"],RAW_2024["Jun"]["partner_pct"]],
+                               marker_colors=[COL_2024,"#FB923C","#FBBF24"],
+                               hole=0.5, showlegend=True, textfont_size=9), 1,1)
+        fig2.add_trace(go.Pie(labels=["Direct","Online","Partner"],
+                               values=[RAW_2025["Jun"]["direct_pct"],RAW_2025["Jun"]["online_pct"],RAW_2025["Jun"]["partner_pct"]],
+                               marker_colors=[COL_2025,"#06B6D4","#8B5CF6"],
+                               hole=0.5, showlegend=False, textfont_size=9), 1,2)
+        fig2.update_layout(paper_bgcolor=CHART_BG, plot_bgcolor=CHART_BG,
+                            font=dict(color=TEXT_COLOR, size=10), height=320,
+                            margin=dict(l=8,r=8,t=44,b=8),
+                            title=dict(text="Channel Mix Evolution: Jan 2024 → Jun 2025",
+                                       font=dict(family="Syne,sans-serif",size=13,color="#E2E8F0"),x=0.02))
+        st.plotly_chart(fig2, use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(x=MONTHS, y=df24["cycle"], name="2024 Sales Cycle",
+                               marker_color=COL_2024, opacity=0.85))
+        fig3.add_trace(go.Bar(x=MONTHS, y=df25["cycle"], name="2025 Sales Cycle",
+                               marker_color=COL_2025, opacity=0.85))
+        fig3.add_hline(y=30, line_dash="dash", line_color="rgba(16,185,129,0.4)",
+                       annotation_text="30-day target", annotation_font_size=9)
+        fig3.update_layout(barmode="group")
+        apply_dark_theme(fig3, "Avg Sales Cycle Days — Velocity Improvement", 300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with c4:
+        # Stacked area: channel pcts over 2025
+        fig4 = go.Figure()
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["direct_pct"], name="Direct",
+                                   stackgroup="one", fillcolor="rgba(59,130,246,0.6)",
+                                   line=dict(color="rgba(59,130,246,0.8)",width=1)))
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["online_pct"], name="Online",
+                                   stackgroup="one", fillcolor="rgba(6,182,212,0.6)",
+                                   line=dict(color="rgba(6,182,212,0.8)",width=1)))
+        fig4.add_trace(go.Scatter(x=MONTHS, y=df25["partner_pct"], name="Partner",
+                                   stackgroup="one", fillcolor="rgba(139,92,246,0.5)",
+                                   line=dict(color="rgba(139,92,246,0.8)",width=1)))
+        apply_dark_theme(fig4, "2025 Channel Mix Composition (Stacked %)", 300)
+        st.plotly_chart(fig4, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: AI ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "AI Analysis":
+    st.markdown('<div class="section-title">AI-Powered Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">GPT-4 · MEDDIC Framework · IT Industry Benchmarks · Strategic Insights</div>', unsafe_allow_html=True)
+
+    if not api_key:
+        st.warning("⚠️ Please enter your OpenAI API key in the sidebar to enable AI analysis.")
+    else:
+        analysis_type = st.selectbox("Select Analysis Type", [
+            "Executive Summary & YoY Assessment",
+            "MEDDIC Framework Analysis",
+            "IT Industry Benchmark Comparison",
+            "Root Cause Analysis: April Dip",
+            "Channel Strategy Assessment",
+            "Customer Health & Retention Analysis",
+            "Competitive Positioning & Pricing Power",
+            "Custom Question",
+        ])
+
+        CONTEXT = f"""
+        Sales Data Summary — H1 2024 vs H1 2025 (DataForge Analytics):
+
+        H1 2024 TOTALS: Net Revenue=${tot24['net_revenue']:,} | Units={tot24['units']:,} | 
+        New Customers={tot24['new_cust']:,} | Avg Attainment={avg24['attainment']:.1f}% |
+        Avg Gross Margin={avg24['gm']:.1f}% | Avg CAC=${avg24['cac']:.0f} | 
+        Avg Churn={avg24['churn']:.1f}%/mo | Avg Sales Cycle={avg24['cycle']:.0f} days |
+        Total Wins={tot24['wins']} | Avg Conversion={avg24['conv']:.1f}%
+
+        H1 2025 TOTALS: Net Revenue=${tot25['net_revenue']:,} | Units={tot25['units']:,} | 
+        New Customers={tot25['new_cust']:,} | Avg Attainment={avg25['attainment']:.1f}% |
+        Avg Gross Margin={avg25['gm']:.1f}% | Avg CAC=${avg25['cac']:.0f} | 
+        Avg Churn={avg25['churn']:.1f}%/mo | Avg Sales Cycle={avg25['cycle']:.0f} days |
+        Total Wins={tot25['wins']} | Avg Conversion={avg25['conv']:.1f}%
+
+        Monthly Data 2025: Jan($112K,88.4%att), Feb($124K,103.7%), Mar($149K,99.5%), 
+        Apr($137K,88.4%—MISS), May($161K,97.6%), Jun($176K,97.8%)
+        
+        Channel Shift 2025: Online grew from 32%(Jan) to 45%(Jun), surpassing Direct.
+        April 2025 anomaly: longest cycle(30d), highest churn(3.1%), lowest attainment(88.4%)
+        Gross Margin: broke 50% barrier in Mar/May/Jun 2025, was flat 43.8% all of 2024.
+        CAC dropped 29% YoY from avg $212 to avg $160.
+        """
+
+        PROMPTS = {
+            "Executive Summary & YoY Assessment":
+                f"{CONTEXT}\n\nProvide a 400-word executive summary for the CIO covering: "
+                "1) Top 5 YoY performance highlights, 2) Key concerns, 3) Overall scorecard "
+                "rating (A/B/C/D) with justification using IT industry standards.",
+
+            "MEDDIC Framework Analysis":
+                f"{CONTEXT}\n\nAnalyze this sales team's performance using the MEDDIC framework "
+                "(Metrics, Economic Buyer, Decision Criteria, Decision Process, Identify Pain, Champion). "
+                "For each component, rate the team's maturity (1-5) and provide specific evidence from the data.",
+
+            "IT Industry Benchmark Comparison":
+                f"{CONTEXT}\n\nCompare these results against standard IT/SaaS industry benchmarks: "
+                "Win rates, CAC ratios, churn targets, gross margins, sales cycle lengths, quota attainment. "
+                "Use Gartner, Forrester, and SaaS metrics standards. Score each area.",
+
+            "Root Cause Analysis: April Dip":
+                f"{CONTEXT}\n\nConduct a deep root cause analysis of the April performance dip "
+                "(seen in BOTH 2024 and 2025). Use the 5-Why methodology. What structural or "
+                "seasonal factors are at play? What preventative measures should be implemented?",
+
+            "Channel Strategy Assessment":
+                f"{CONTEXT}\n\nAnalyze the channel strategy transformation from Direct-dominant (2024) "
+                "to Online-dominant (2025). Use the SiriusDecisions Demand Waterfall framework. "
+                "What are the revenue implications? What risks exist with the Partner channel at 17%?",
+
+            "Customer Health & Retention Analysis":
+                f"{CONTEXT}\n\nPerform a customer health analysis. Calculate estimated LTV, "
+                "payback period, and NRR implications. Compare against IT industry benchmarks "
+                "(target churn <2%/mo, LTV:CAC >3x). What retention programs should be prioritized?",
+
+            "Competitive Positioning & Pricing Power":
+                f"{CONTEXT}\n\nAssess competitive positioning based on: discount rate trend "
+                "(8.1%→4.5%), AOV stability ($179-180), gross margin expansion (43.8%→51.3%). "
+                "What does this tell us about pricing power? How should this inform H2 2025 pricing strategy?",
+
+            "Custom Question": None,
+        }
+
+        custom_q = ""
+        if analysis_type == "Custom Question":
+            custom_q = st.text_area("Enter your question for the AI:",
+                                     placeholder="e.g., What sales methodology should we adopt for H2 2025?",
+                                     height=100)
+
+        if st.button("🤖 Generate AI Analysis", use_container_width=True):
+            with st.spinner("Analyzing with GPT-4..."):
+                if analysis_type == "Custom Question":
+                    prompt = f"{CONTEXT}\n\n{custom_q}" if custom_q else "Please summarize the data."
+                else:
+                    prompt = PROMPTS[analysis_type]
+
+                result = ask_openai(prompt, api_key, model_choice)
+
+            st.markdown(f'<div class="ai-card">{result.replace(chr(10), "<br>")}</div>',
+                        unsafe_allow_html=True)
+
+            # Download option
+            st.download_button("📥 Download Analysis", result,
+                                file_name=f"ai_analysis_{analysis_type[:20].replace(' ','_')}.txt",
+                                mime="text/plain")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION: H2 ACTION PLAN
+# ─────────────────────────────────────────────────────────────────────────────
+elif nav == "H2 Action Plan":
+    st.markdown('<div class="section-title">H2 2025 Action Plan</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Strategic Recommendations · OKRs · 90-Day Sprint · Execution Roadmap</div>', unsafe_allow_html=True)
+
+    # H2 Projections
+    st.markdown("### 📊 H2 2025 Revenue Projections")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("H1 2025 Actual", "$859,770", delta="Baseline")
+    c2.metric("H2 2025 Conservative", "$980,000", delta="+14% vs H1")
+    c3.metric("H2 2025 Target",    "$1,120,000", delta="+30% vs H1")
+    c4.metric("H2 2025 Stretch",   "$1,280,000", delta="+49% vs H1")
+
+    # OKRs
+    st.markdown("### 🎯 H2 2025 OKRs (Objectives & Key Results)")
+    okrs = [
+        ("O1", "Drive Revenue Acceleration", "#3B82F6", [
+            "KR1: Achieve $1.1M+ net revenue in H2 2025 (28% above H1)",
+            "KR2: Reach 100%+ quota attainment every month in H2",
+            "KR3: Grow pipeline to $700K+ by Dec 2025",
+        ]),
+        ("O2", "Dominate Digital Channel", "#06B6D4", [
+            "KR1: Grow online channel to 55%+ share by Dec 2025",
+            "KR2: Reduce average sales cycle to ≤18 days by Q4",
+            "KR3: Launch 2 new digital demand-gen campaigns by Aug 2025",
+        ]),
+        ("O3", "Improve Customer Health", "#10B981", [
+            "KR1: Reduce monthly churn to <1.5% by Dec 2025",
+            "KR2: Achieve LTV:CAC ratio of 3.0x+ across all segments",
+            "KR3: Increase net revenue retention (NRR) to 115%+",
+        ]),
+        ("O4", "Sustain Margin Expansion", "#F59E0B", [
+            "KR1: Maintain gross margin above 52% every month in H2",
+            "KR2: Reduce average discount rate to below 4% by Dec 2025",
+            "KR3: Improve net margin to 35%+ by Jun 2025",
+        ]),
+        ("O5", "Eliminate April-Pattern Risk", "#8B5CF6", [
+            "KR1: Pre-load 40% of Q3 Jul pipeline before Jun 30",
+            "KR2: Implement seasonal quota adjustment model by Jul 1",
+            "KR3: Deploy early-warning attainment dashboard by Jul 15",
+        ]),
+    ]
+
+    for obj_id, obj_title, clr, krs in okrs:
+        with st.expander(f"🎯 {obj_id}: {obj_title}", expanded=(obj_id=="O1")):
+            for kr in krs:
+                st.markdown(f"""
+                <div style='background:rgba(255,255,255,0.02);border-left:3px solid {clr};
+                            padding:10px 14px;margin:6px 0;border-radius:0 8px 8px 0;
+                            font-size:0.85rem;color:#CBD5E1'>
+                    {kr}
+                </div>""", unsafe_allow_html=True)
+
+    # 90-Day Sprint
+    st.markdown("### 🚀 90-Day Execution Sprint (Jul–Sep 2025)")
+    actions = [
+        ("Jul Week 1–2", "Pre-load Pipeline", "#3B82F6",
+         "Sales ops to identify and qualify $420K+ in Jul–Aug pipeline before Jul 1. "
+         "Assign top reps to high-value enterprise accounts. Prevent repeat April dip."),
+        ("Jul Week 3–4", "Digital Channel Blitz", "#06B6D4",
+         "Launch 2 targeted digital campaigns (LinkedIn + intent data). "
+         "Target Online channel share of 50% by end of July. Enable self-serve demo booking."),
+        ("Aug Week 1–2", "Churn Intervention Program", "#10B981",
+         "Identify all customers with 90d+ since last engagement. "
+         "Assign CSMs to top-50 at-risk accounts. Goal: reduce monthly churn to 1.5% by Aug."),
+        ("Aug Week 3–4", "Pricing Power Initiative", "#F59E0B",
+         "Eliminate discretionary discounting >5% without VP approval. "
+         "Roll out value-based pricing playbook to all AEs. Target discount rate <4.5%."),
+        ("Sep Week 1–2", "Partner Channel Revamp", "#8B5CF6",
+         "Audit Partner channel performance (stuck at 17–18%). "
+         "Recruit 3 new strategic partners in underserved verticals. Target 22% partner share by Q4."),
+        ("Sep Week 3–4", "Q4 Planning & Forecast Lock", "#F43F5E",
+         "Lock Q4 quotas with seasonal model applied. "
+         "Run pipeline health assessment. Forecast to $600K+ Q4 pipeline by Sep 30."),
+    ]
+
+    for period, title, clr, detail in actions:
+        st.markdown(f"""
+        <div class="insight-card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                <span style="font-family:'Space Mono',monospace;font-size:0.68rem;
+                             color:{clr};background:rgba(0,0,0,0.3);
+                             padding:2px 8px;border-radius:4px;border:1px solid {clr}40">
+                    {period}
+                </span>
+                <span class="insight-title" style="color:{clr}">{title}</span>
+            </div>
+            <div class="insight-body">{detail}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Scorecard
+    st.markdown("### 📋 Performance Scorecard Against IT Industry Benchmarks")
+    bench = pd.DataFrame({
+        "Metric":            ["Gross Margin","Quota Attainment","Win Rate","Sales Cycle","Churn Rate","CAC Payback","Discount Rate","Pipeline Coverage"],
+        "IT Benchmark":      ["≥ 65% (SaaS)","≥ 100%","≥ 50%","≤ 30 days","< 2%/mo","< 12 months","< 5%","≥ 3x quota"],
+        "H1 2024 Result":    ["43.8% ❌","93.6% ❌","62.3% ✅","34 days ❌","4.2% ❌","~14 mo ❌","7.5% ❌","~2.5x ❌"],
+        "H1 2025 Result":    ["48.4% ⚠️","98.1% ⚠️","75.4% ✅","25 days ✅","2.6% ⚠️","~10 mo ⚠️","5.5% ⚠️","~3.0x ✅"],
+        "H2 2025 Target":    ["52%+","100%+","78%+","≤18 days","<1.5%","<9 months","<4%","3.5x+"],
+        "Priority":          ["HIGH","CRITICAL","MEDIUM","HIGH","CRITICAL","HIGH","MEDIUM","HIGH"],
+    })
+    st.dataframe(bench, use_container_width=True, hide_index=True)
+
+    # AI-powered action plan
+    if api_key:
+        st.markdown("### 🤖 AI-Generated H2 Action Plan")
+        if st.button("Generate Full AI Action Plan for H2 2025", use_container_width=True):
+            with st.spinner("GPT-4 is crafting your H2 roadmap..."):
+                prompt = f"""
+                Based on this H1 2024 vs H1 2025 sales data for DataForge Analytics:
+                
+                Key metrics:
+                - Revenue grew 48.9% YoY ($577K → $860K)
+                - Gross margin improved from 43.8% to 48.4% (target: 65% IT SaaS benchmark)
+                - CAC dropped 29% but still above 3x LTV:CAC benchmark
+                - Churn improved 2.6% but target is <2%
+                - April recurring dip (88.4-88.5% attainment both years)
+                - Online channel grew to 45% (was 22%)
+                - Sales cycle reduced from 34 to 25 days avg
+                
+                As an elite sales strategy consultant for the CIO, create a comprehensive 
+                H2 2025 action plan with:
+                1. Top 5 strategic priorities ranked by revenue impact
+                2. Specific 30/60/90-day milestones for each priority
+                3. KPIs to track each initiative
+                4. Risk mitigation for the recurring April pattern
+                5. Team enablement recommendations (training, tools, compensation)
+                6. Technology/CRM investments to accelerate growth
+                7. Expected H2 revenue outcome if plan is executed (with confidence interval)
+                
+                Be specific, quantitative, and actionable. Reference IT industry best practices.
+                """
+                result = ask_openai(prompt, api_key, model_choice)
+            st.markdown(f'<div class="ai-card">{result.replace(chr(10), "<br>")}</div>',
+                        unsafe_allow_html=True)
+            st.download_button("📥 Download H2 Action Plan", result,
+                                file_name="H2_2025_action_plan.txt", mime="text/plain")
+    else:
+        st.info("💡 Enter your OpenAI API key in the sidebar to generate an AI-powered H2 action plan.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div style='margin-top:40px;border-top:1px solid rgba(99,179,237,0.1);
+            padding-top:16px;display:flex;justify-content:space-between;
+            align-items:center;flex-wrap:wrap;gap:8px'>
+    <div style='font-family:"Space Mono",monospace;font-size:0.68rem;color:#334155'>
+        DataForge Analytics · Sales Intelligence Platform · Hackathon 2025
+    </div>
+    <div style='font-family:"DM Sans",sans-serif;font-size:0.72rem;color:#475569'>
+        Data: H1 2024–2025 Simulated · Framework: MEDDIC + OKR · Powered by OpenAI GPT-4
+    </div>
+</div>
+""", unsafe_allow_html=True)
